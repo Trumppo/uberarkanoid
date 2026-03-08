@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="fi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Uberarkanoid</title>
+    <link rel="stylesheet" href="styles/main.css" />
+  </head>
+  <body>
+    <main class="layout">
+      <section class="hud-card">
+        <header>
+          <p class="tagline">Arkanoid + Uberpunk</p>
+          <h1>Uberarkanoid</h1>
+          <p class="subtitle">
+            Neonritmit, liikkuvat taustat ja taktiset power-upit. Tämä staattinen sivu
+            pitää sisällään koko pelirungon ilman backend-koodia.
+          </p>
+        </header>
+        <div class="stat-grid">
+          <div>
+            <span>Elämät</span>
+            <strong id="livesValue">3</strong>
+          </div>
+          <div>
+            <span>Pisteet</span>
+            <strong id="scoreValue">0</strong>
+          </div>
+          <div>
+            <span>Combo</span>
+            <strong id="comboValue">0x</strong>
+          </div>
+          <div>
+            <span>Tempo</span>
+            <strong id="tempoValue">120</strong>
+          </div>
+          <div>
+            <span>High Score</span>
+            <strong id="highScoreValue">0000</strong>
+          </div>
+        </div>
+        <div class="mode-select">
+          <label for="modeSelect">Mood</label>
+          <select id="modeSelect">
+            <option value="classic">Classic</option>
+            <option value="beat">Beat Mode</option>
+            <option value="ultra">Ultra</option>
+          </select>
+        </div>
+        <div class="progress-track">
+          <span>Kenttäprogress</span>
+          <div class="progress-bar">
+            <div id="levelProgress"></div>
+          </div>
+        </div>
+        <div class="music-control">
+          <label for="musicSelect">Musiikki</label>
+          <div class="music-actions">
+            <select id="musicSelect"></select>
+            <button id="musicToggle" type="button">Play tekno</button>
+          </div>
+          <p class="music-note" id="musicNote">Airwave-tekno & gabberi vibes.</p>
+        </div>
+        <div class="control-hints">
+          <p>Ohjaa mailaa ← → tai A/D.</p>
+          <p>Paina välilyöntiä aloittaaksesi.</p>
+        </div>
+      </section>
+      <section class="game-card">
+        <canvas
+          id="gameCanvas"
+          width="960"
+          height="540"
+          role="img"
+          aria-label="Uberarkanoid"
+        ></canvas>
+        <div class="hud-row">
+          <div class="meter">
+            <span>Uber-energia</span>
+            <div class="meter-bar">
+              <div id="uberFill"></div>
+            </div>
+          </div>
+          <p class="level-display">
+            Level <strong id="levelValue">1</strong>
+          </p>
+          <p class="status-text" id="statusText">Valmiina</p>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="src/game.js"></script>
+  </body>
+</html>
