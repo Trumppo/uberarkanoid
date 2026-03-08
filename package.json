@@ -7,6 +7,6 @@
     "build": "rm -rf dist && mkdir -p dist && cp index.html dist/ && cp -r styles dist/ && cp -r src dist/ && cp package.json dist/"
   },
   "devDependencies": {
-    "vitest": "^1.6.0"
+    "vitest": "^4.0.18"
   }
 }

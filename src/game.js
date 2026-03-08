@@ -19,6 +19,7 @@ const state = {
   level: 1,
   currentRows: 0,
   totalBricks: 0,
+  beatPulse: 0,
 };
 const HIGHSCORE_KEY = "uberarkanoid-highscore";
 
@@ -98,6 +99,11 @@ const POWERUP_RADIUS = 12;
 const POWERUP_DURATION = 5200;
 const POWERUP_COLOR = "rgba(255, 225, 79, 0.9)";
 let powerupExpires = 0;
+const SLOW_MULTIPLIER = 0.6;
+const SLOW_DURATION = 5200;
+let slowActive = false;
+let slowExpires = 0;
+const BEAT_DECAY = 3;
 const TRACKS = [
   { id: "tekno-pulse", name: "Tekno Pulse", style: "tekno", bpm: 142 },
   { id: "gabber-core", name: "Gabber Core", style: "gabber", bpm: 175 },
@@ -201,12 +207,22 @@ function update(dt, timestampMs) {
     state.status = "Power-up ohi";
   }
 
+  if (slowActive && timestampMs >= slowExpires) {
+    slowActive = false;
+    state.status = "Slow motion ohi";
+  }
+
+  if (state.beatPulse > 0) {
+    state.beatPulse = Math.max(0, state.beatPulse - dt * BEAT_DECAY);
+  }
+
   if (!state.running) {
     return;
   }
 
-  ball.x += ball.vx * dt;
-  ball.y += ball.vy * dt;
+  const motionFactor = slowActive ? SLOW_MULTIPLIER : 1;
+  ball.x += ball.vx * dt * motionFactor;
+  ball.y += ball.vy * dt * motionFactor;
 
   if (ball.x - ball.radius <= 0 || ball.x + ball.radius >= canvas.width) {
     ball.vx *= -1;
@@ -267,6 +283,10 @@ function drawBackgroundGrid() {
     ctx.moveTo(0, y);
     ctx.lineTo(canvas.width, y);
     ctx.stroke();
+  }
+  if (state.beatPulse > 0) {
+    ctx.fillStyle = `rgba(255, 255, 255, ${0.06 * state.beatPulse})`;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
 }
 
@@ -383,7 +403,7 @@ function maybeSpawnPowerUp(brick) {
     x: brick.x + brick.width / 2,
     y: brick.y + brick.height + 4,
     vy: POWERUP_SPEED,
-    type: "score",
+    type: Math.random() < 0.5 ? "score" : "slow",
     alive: true,
   });
 }
@@ -412,12 +432,19 @@ function activatePowerUp(type, timestampMs) {
     state.scoreMultiplier = 2;
     powerupExpires = timestampMs + POWERUP_DURATION;
     state.status = "Score boost!";
+    return;
+  }
+  if (type === "slow") {
+    slowActive = true;
+    slowExpires = timestampMs + SLOW_DURATION;
+    state.status = "Slow motion!";
   }
 }
 
 function advanceLevel() {
   state.level += 1;
-  state.status = `Level ${state.level} aloitettu`;
+  const track = selectTrackForLevel(state.level);
+  state.status = `Level ${state.level} aloitettu — ${track.name}`;
   state.uber = Math.min(state.uber + 20, 100);
   state.combo = 0;
   state.scoreMultiplier = 1;
@@ -425,6 +452,10 @@ function advanceLevel() {
   powerUps = [];
   buildBricks(state.level);
   resetBall(false);
+  refreshMusicNote();
+  if (musicEngine.isPlaying) {
+    musicEngine.start(track);
+  }
 }
 
 class MusicEngine {
@@ -489,10 +520,16 @@ class MusicEngine {
     hat.connect(hatGain).connect(ctx.destination);
     hat.start(now);
     hat.stop(now + 0.1);
+    if (typeof this.onBeat === "function") {
+      this.onBeat(track);
+    }
   }
 }
 
 const musicEngine = new MusicEngine();
+musicEngine.onBeat = () => {
+  state.beatPulse = 1;
+};
 
 function populateMusicTracks() {
   if (!dom.musicSelect) {
@@ -525,6 +562,15 @@ function refreshMusicNote() {
   if (dom.musicToggle) {
     dom.musicToggle.textContent = musicEngine.isPlaying ? "Stop" : `Play ${styleLabel}`;
   }
+}
+
+function selectTrackForLevel(level) {
+  const index = (level - 1) % TRACKS.length;
+  const track = TRACKS[index];
+  if (dom.musicSelect) {
+    dom.musicSelect.value = track.id;
+  }
+  return track;
 }
 
 function applyMode(mode) {
@@ -616,6 +662,7 @@ canvas.addEventListener("click", () => {
 });
 
 populateMusicTracks();
+selectTrackForLevel(state.level);
 refreshMusicNote();
 
 if (dom.musicSelect) {
