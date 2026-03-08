@@ -1,6 +1,6 @@
 # uberarkanoid: Arkanoid + Uberpunk
 
-Tavoite on tehdä Arkanoid-peli, joka näyttää ja tuntuu kuin ``uberpong``-tyylinen neon- ja rytmiverkko. Tätä suunnitelmaa noudatetaan uuden pelirepon kehityksessä:
+Tavoite on tehdä Arkanoid-peli, joka näyttää ja tuntuu kuin ``uberpong``-tyylinen neon- ja rytmiverkko. Peli rakennetaan staattisena HTML-web-sivuna, jossa kaikki logiikka, grafiikat ja ääni latautuvat selaimeen ilman serveripuolen komponenttia. Tätä suunnitelmaa noudatetaan uuden pelirepon kehityksessä:
 
 1. **Visuaalinen referenssi**
    - Päivitä `uberpong`-repo (`git pull`) ja analysoi `styles/main.css`, `src/game.js`, `config/*` ja äänikonfiguraatiot.
@@ -11,8 +11,8 @@ Tavoite on tehdä Arkanoid-peli, joka näyttää ja tuntuu kuin ``uberpong``-tyy
    - Lisää uber-ominaisuuksia: power-upit, useat pallot, laser-eps, tasorytmit, “Uber-tilat” ja laajenevat taustat.
 
 3. **Tekninen perusta**
-   - Kokeile samaa työkalupinoa kuin uberpong (npm, Vite/ESBuild) riippuvuuksineen.
-   - Rakenna `src`-hakemisto, joka pitää esim. `game.ts/js`, `ui`, `assets` ja `levels`.
+   - Kokeile samaa työkalupinoa kuin uberpong (npm, Vite/ESBuild) riippuvuuksineen, mutta varmista, että lopputulos on staattinen HTML-jaettavassa muodossa (Yksi index.html + sisällöt).
+   - Rakenna `src`-hakemisto, joka pitää esim. `game.ts/js`, `ui`, `assets` ja `levels` sekä staattinen `index.html`, joka pakkaa kaiken purkkiin.
 
 4. **Mekaniikat ja logiikka**
    - Toteuta pallon liike, mailan hallinta ja törmäykset (kirjataan yksikkö- tai e2e-testejä tarpeen mukaan).
