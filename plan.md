@@ -33,15 +33,10 @@ Tavoite on tehdä Arkanoid-peli, joka näyttää ja tuntuu kuin ``uberpong``-tyy
 Tarvittaessa tarkennan suunnitelmaa, jos haluat painottaa jotain tiettyä osa-aluetta ennen toteutusta.
 
 ## Toteutusstatus
-- Staattinen `index.html` ja `styles/main.css` on rakennettu neon-suuntautuneena layoutina, joka kopioi uberpongin paletin, hud-elementit ja canvasalueen.
-- `.game-card`-kortti käyttää pseudo-elementtejä fraktaalimaisiin, pyöriviin geometrisiin valojen ja gradienttien laattailmiöihin.
-- `src/game.js` sisältää pelisirun; tässä vaiheessa maila ja pallo piirretään canvasille, pallon törmäykset toimivat ja status/hud päivittyvät, joten rinnakkainen tekninen runko alkaa hahmottua.
-- `src/game.js` sisältää nyt tiilimatriisin, Arkanoid-tyyppisen törmäyksen ja Uber-meterin, joten pelimekaniikan ja power-up-idean ensimmäinen versio on käytettävissä.
-- Moodivalikko, high-score ja kenttäprogress ovat nyt osa HUDia ja reagoivat `src/game.js`:n moodiasetuksiin, joten visuaalinen rytmityö ja Uber-tyylittely voivat edetä seuraavaan vaiheeseen.
-- Power-upit pudottavat pisteboostin, rakenne etenee levelin yli ja moodit säätävät tempoja, joten HUD kertoo kentän etenemisestä, high-scoresta ja seuraavasta levelistä.
-- `src/game.js` käsittelee monipallot, laser-iskut ja uusia power-up-tyyppejä, jolloin dashboardin rytmi reagoi musansaattiin ja energiamittari kattaa upeat Uber-tilat.
-- Musiikkivalinta tarjoaa nyt tekno- ja gabber-träkit sekä energisen soittimen (`MusicEngine`), joka pitää tempoa yllä ja päivittää HUDin status-tekstin soitetun tyylin mukaisesti.
-- `src/logic.js` ja uudet `vitest`-testit varmistavat pelimekaniikan perusfunktiot (clamp, brick rows ja progress) ennen kuin julkaistaan taustamusiikkia.
-- GitHub Actions -workflow (`.github/workflows/build.yml`) ajaa `npm test` ja `npm run build`, joten julkaisun sivun build-prosessi pysyy automaattisena.
-- `config/music.json` ja `levels/levels.json` kuormittavat soittolistan ja tiilimaskit, ja `package.json`-build skripti kopioi ne `dist`-hakemistoon valmiiksi julkaistavaksi.
-- GitHub Actions -pipeline puskee `dist`-hakemiston peaceiris/actions-gh-pagesilla GitHub Pagesiin, joten julkaisu reititetään main-juurihakemistosta automaattisesti.
+- Staattinen `index.html` ja `styles/main.css` jatkavat neon-moodia ja HUD-elementtejä, nyt lisättynä tummaan taustaan ja laskettaviin mittareihin, joten näyttö pysyy ytimekkäänä ja neonista.
+- `scripts/generate_levels.py` luo deterministisesti 100 geometrisesti erilasta kenttää JSON-muodossa ja `npm run build` ajaa generatorin ennen distin pakkautumista, joten jokainen pelikerta saa säilyvän tiilimaskin.
+- Fraktaalimaiset taustaverkot, pulsaattorit ja pyörivät polygonit piirtyvät `src/game.js`:n uuteen `drawBackgroundGrid`-rakenteeseen, joka reagoi beat-pulssiin ja taustapulsseen.
+- `src/game.js` lukee uudet kentät `levels/levels.json`-tiedostosta, vie kentänvaihdot `checkLevelCompletion`-tarkistuksen läpi ja vaihtaa automaattisesti musiikin tasoittain, kenttä on selkeästi ennustettava ja jokainen hajoaa aina samaan järjestykseen.
+- Power-up-systeemi tuottaa kirjaimilla merkityt kiekot (`score`, `slow`, `multi`, `laser`, `life`, `expand`, `shrink`, `shield`, `pulse`) ja ne animoituvat, antoivat lisäelämän, laajenevan/kutistuvan mailan, shieldin ja beat-pulssin; `activatePowerUp` hoitaa tilat ja `shield` estää elämänmenetyksen.
+- Pelilogiikka reagoi päivitettyihin arvoihin: `Space` käynnistää tai pysäyttää pelin ja aloittaa alusta Game Over -tilasta, `F` vie koko ruudulle, Game Over -näyttö coveroi 80 % kentästä Uber-räjähdyksellä ja voimakkailla teksteillä.
+- GitHub Actions ajaa `npm test` ja `npm run build` (joka pyörittää generatorin), sekä publishaa `dist`-hakemiston GH Pagesiin ja säilyttää artefaktit. README/plan-sisältö päivitetään vastaamaan tätä tilaa.

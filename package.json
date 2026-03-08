@@ -1,10 +1,11 @@
 {
   "name": "uberarkanoid",
-  "private": true,
+  "private": false,
   "type": "module",
   "scripts": {
     "test": "vitest run",
-    "build": "rm -rf dist && mkdir -p dist && cp index.html dist/ && cp -r styles dist/ && cp -r src dist/ && cp -r config dist/ && cp -r levels dist/ && cp package.json dist/"
+    "generate-levels": "python3 scripts/generate_levels.py",
+    "build": "npm run generate-levels && rm -rf dist && mkdir -p dist && cp index.html dist/ && cp -r styles dist/ && cp -r src dist/ && cp -r config dist/ && cp -r levels dist/ && cp package.json dist/"
   },
   "devDependencies": {
     "vitest": "^4.0.18"
