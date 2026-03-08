@@ -63,6 +63,8 @@ const dom = {
   musicNote: document.getElementById("musicNote"),
 };
 
+const gameArea = document.querySelector(".game-card");
+
 const modeControl = document.getElementById("modeSelect");
 
 state.highScore = readHighScore();
@@ -816,6 +818,10 @@ window.addEventListener("keydown", (event) => {
     state.running = true;
     state.status = "Pelaa!";
   }
+  if (event.code === "KeyF") {
+    event.preventDefault();
+    toggleFullScreen();
+  }
 });
 
 window.addEventListener("keyup", (event) => {
@@ -833,6 +839,28 @@ canvas.addEventListener("click", () => {
     state.status = "Pelaa!";
   }
 });
+
+function toggleFullScreen() {
+  if (document.fullscreenElement) {
+    const exitFn =
+      document.exitFullscreen ||
+      document.webkitExitFullscreen ||
+      document.mozCancelFullScreen ||
+      document.msExitFullscreen;
+    exitFn?.call(document);
+    return;
+  }
+  const target = gameArea || canvas;
+  if (!target) {
+    return;
+  }
+  const requestFn =
+    target.requestFullscreen ||
+    target.webkitRequestFullscreen ||
+    target.mozRequestFullScreen ||
+    target.msRequestFullscreen;
+  requestFn?.call(target);
+}
 
 function populateMusicTracks() {
   if (!dom.musicSelect || !TRACKS.length) {
