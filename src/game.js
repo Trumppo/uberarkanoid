@@ -553,7 +553,7 @@ function activateUber(timestampMs) {
 
 function advanceLevel() {
   state.level += 1;
-  const track = selectTrackForLevel(state.level);
+  const track = updateMusicForCurrentLevel();
   state.status = `Level ${state.level} aloitettu — ${track ? track.name : "uus"}`;
   state.uber = Math.min(state.uber + 20, 100);
   state.combo = 0;
@@ -566,10 +566,6 @@ function advanceLevel() {
   stopLaser();
   buildBricks(state.level);
   resetBall(false);
-  refreshMusicNote();
-  if (musicEngine.isPlaying) {
-    musicEngine.start(track);
-  }
 }
 
 function update(dt, timestampMs) {
@@ -907,6 +903,15 @@ function selectTrackForLevel(level) {
   return track;
 }
 
+function updateMusicForCurrentLevel() {
+  const track = selectTrackForLevel(state.level);
+  refreshMusicNote();
+  if (musicEngine.isPlaying) {
+    musicEngine.start(track);
+  }
+  return track;
+}
+
 function applyMode(mode) {
   const settings = MODE_SETTINGS[mode] || MODE_SETTINGS.classic;
   const previousSpeed = state.speedFactor || 1;
@@ -1031,11 +1036,7 @@ async function loadAssets() {
 async function initGame() {
   await loadAssets();
   populateMusicTracks();
-  const track = selectTrackForLevel(state.level);
-  refreshMusicNote();
-  if (musicEngine.isPlaying) {
-    musicEngine.start(track);
-  }
+  updateMusicForCurrentLevel();
   configureCanvas();
   requestAnimationFrame(loop);
 }
