@@ -21,6 +21,7 @@ const state = {
   totalBricks: 0,
   beatPulse: 0,
 };
+
 const HIGHSCORE_KEY = "uberarkanoid-highscore";
 
 const BASE_PADDLE_WIDTH = 180;
@@ -81,6 +82,7 @@ const UBER_THRESHOLD = 100;
 const UBER_DURATION = 4200;
 const UBER_WIDTH_BONUS = 80;
 const UBER_DECAY = 4;
+
 const BRICK_BASE_ROWS = 5;
 const BRICK_MAX_EXTRA_ROWS = 3;
 const BRICK_COLS = 11;
@@ -89,26 +91,91 @@ const BRICK_PADDING = 8;
 const BRICK_OFFSET_TOP = 80;
 const BRICK_OFFSET_SIDE = 34;
 const BRICK_COLORS = ["#ff4fd8", "#30d9ff", "#62ff8a", "#ffd93d", "#ff6b7f"];
-let bricks = [];
-let uberActive = false;
-let uberExpires = 0;
-let powerUps = [];
+
 const POWERUP_DROP_CHANCE = 0.2;
 const POWERUP_SPEED = 110;
 const POWERUP_RADIUS = 12;
 const POWERUP_DURATION = 5200;
 const POWERUP_COLOR = "rgba(255, 225, 79, 0.9)";
 let powerupExpires = 0;
+
 const SLOW_MULTIPLIER = 0.6;
 const SLOW_DURATION = 5200;
 let slowActive = false;
 let slowExpires = 0;
-const BEAT_DECAY = 3;
-const TRACKS = [
+
+const MUSIC_CONFIG_PATH = "config/music.json";
+const LEVELS_CONFIG_PATH = "levels/levels.json";
+
+const DEFAULT_TRACKS = [
   { id: "tekno-pulse", name: "Tekno Pulse", style: "tekno", bpm: 142 },
   { id: "gabber-core", name: "Gabber Core", style: "gabber", bpm: 175 },
   { id: "acid-tekno", name: "Acid Tekno", style: "tekno", bpm: 150 },
+  { id: "turbo-rush", name: "Turbo Rush", style: "gabber", bpm: 168 },
 ];
+
+let TRACKS = [...DEFAULT_TRACKS];
+
+const DEFAULT_LEVEL_PATTERNS = [
+  {
+    id: 1,
+    pattern: [
+      "11111111111",
+      "10111111011",
+      "11100111111",
+      "10111111011",
+      "11111111111",
+    ],
+  },
+  {
+    id: 2,
+    pattern: [
+      "11111011111",
+      "01111111110",
+      "11111111111",
+      "01111111110",
+      "11111011111",
+      "10111111011",
+    ],
+  },
+  {
+    id: 3,
+    pattern: [
+      "10101010101",
+      "01010101010",
+      "11111111111",
+      "00010000100",
+      "11111111111",
+      "01010101010",
+    ],
+  },
+];
+
+let LEVEL_PATTERNS = [...DEFAULT_LEVEL_PATTERNS];
+
+const POWERUP_POOL = ["score", "score", "slow", "multi", "laser"];
+
+let bricks = [];
+let uberActive = false;
+let uberExpires = 0;
+let powerUps = [];
+let extraBalls = [];
+let laserShots = [];
+let laserActive = false;
+let laserExpires = 0;
+let lastLaserShot = 0;
+
+const MULTI_BALL_COUNT = 2;
+const EXTRA_BALL_RADIUS = 8;
+const EXTRA_BALL_SPEED = 240;
+
+const LASER_SPEED = 420;
+const LASER_DURATION = 6400;
+const LASER_FIRE_INTERVAL = 520;
+const LASER_COLOR = "rgba(255, 79, 216, 0.95)";
+const LASER_WIDTH = 6;
+
+const BEAT_DECAY = 3;
 
 function readHighScore() {
   try {
@@ -143,6 +210,11 @@ function configureCanvas() {
   state.scoreMultiplier = 1;
   powerupExpires = 0;
   powerUps = [];
+  extraBalls = [];
+  laserShots = [];
+  stopLaser();
+  slowActive = false;
+  slowExpires = 0;
   buildBricks();
   resetBall(false);
 }
@@ -155,21 +227,46 @@ function resetBall(acceptLaunch) {
   ball.vy = -320 * factor;
   state.running = acceptLaunch;
   state.status = acceptLaunch ? "Pelaa!" : "Paina välilyöntiä aloittaaksesi";
+  extraBalls = [];
+  laserShots = [];
+  stopLaser();
+}
+
+function getPatternForLevel(level) {
+  if (!LEVEL_PATTERNS.length) {
+    return null;
+  }
+  return LEVEL_PATTERNS[(level - 1) % LEVEL_PATTERNS.length];
+}
+
+function getRowMask(pattern, rowIndex) {
+  if (!pattern || !pattern.pattern?.length) {
+    return "1".repeat(BRICK_COLS);
+  }
+  const rows = pattern.pattern;
+  const baseRow = rows[rowIndex % rows.length] || rows[rows.length - 1];
+  const padChar = baseRow[baseRow.length - 1] || "1";
+  return (baseRow + padChar.repeat(BRICK_COLS)).slice(0, BRICK_COLS);
 }
 
 function buildBricks(level = state.level) {
-  const rows = computeBrickRows(level, BRICK_BASE_ROWS, BRICK_MAX_EXTRA_ROWS);
-  state.currentRows = rows;
-  state.totalBricks = rows * BRICK_COLS;
+  const pattern = getPatternForLevel(level);
+  const computedRows = computeBrickRows(level, BRICK_BASE_ROWS, BRICK_MAX_EXTRA_ROWS);
+  const patternRows = pattern?.pattern?.length || computedRows;
+  const totalRows = Math.max(computedRows, patternRows);
+  state.currentRows = totalRows;
   bricks = [];
+  state.totalBricks = 0;
   const totalPadding = BRICK_PADDING * (BRICK_COLS - 1);
   const width = (canvas.width - BRICK_OFFSET_SIDE * 2 - totalPadding) / BRICK_COLS;
-  for (let row = 0; row < rows; row += 1) {
+  for (let row = 0; row < totalRows; row += 1) {
+    const mask = getRowMask(pattern, row);
     for (let col = 0; col < BRICK_COLS; col += 1) {
-      const x =
-        BRICK_OFFSET_SIDE + col * (width + BRICK_PADDING);
-      const y =
-        BRICK_OFFSET_TOP + row * (BRICK_HEIGHT + BRICK_PADDING);
+      if (mask[col] === "0") {
+        continue;
+      }
+      const x = BRICK_OFFSET_SIDE + col * (width + BRICK_PADDING);
+      const y = BRICK_OFFSET_TOP + row * (BRICK_HEIGHT + BRICK_PADDING);
       bricks.push({
         x,
         y,
@@ -178,7 +275,292 @@ function buildBricks(level = state.level) {
         color: BRICK_COLORS[row % BRICK_COLORS.length],
         alive: true,
       });
+      state.totalBricks += 1;
     }
+  }
+}
+
+function createExtraBall() {
+  const speed = state.speedFactor || 1;
+  const direction = Math.random() > 0.5 ? 1 : -1;
+  return {
+    radius: EXTRA_BALL_RADIUS,
+    x: paddle.x + paddle.width / 2,
+    y: paddle.y - EXTRA_BALL_RADIUS - 6,
+    vx: direction * EXTRA_BALL_SPEED * speed,
+    vy: -EXTRA_BALL_SPEED * speed,
+    active: true,
+  };
+}
+
+function updateExtraBalls(dt, timestampMs, motionFactor) {
+  for (const extraBall of extraBalls) {
+    extraBall.x += extraBall.vx * dt * motionFactor;
+    extraBall.y += extraBall.vy * dt * motionFactor;
+    if (extraBall.x - extraBall.radius <= 0 || extraBall.x + extraBall.radius >= canvas.width) {
+      extraBall.vx *= -1;
+    }
+    if (extraBall.y - extraBall.radius <= 0) {
+      extraBall.vy *= -1;
+    }
+    handleBrickCollisions(extraBall, timestampMs);
+    handlePaddleCollision(extraBall);
+    if (extraBall.y - extraBall.radius > canvas.height) {
+      extraBall.active = false;
+    }
+  }
+  extraBalls = extraBalls.filter((extraBall) => extraBall.active);
+}
+
+function drawBall(currentBall = ball) {
+  const gradient = ctx.createRadialGradient(
+    currentBall.x,
+    currentBall.y,
+    0,
+    currentBall.x,
+    currentBall.y,
+    currentBall.radius * 1.8
+  );
+  gradient.addColorStop(0, "#ffffff");
+  gradient.addColorStop(1, currentBall.radius > ball.radius ? "rgba(255, 99, 180, 0.8)" : "rgba(99, 255, 186, 0.7)");
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.arc(currentBall.x, currentBall.y, currentBall.radius, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function spawnLaserShot() {
+  laserShots.push({
+    x: paddle.x + paddle.width / 2,
+    y: paddle.y,
+    vy: -LASER_SPEED,
+    alive: true,
+  });
+}
+
+function updateLaserShots(dt) {
+  if (!laserShots.length) {
+    return;
+  }
+  for (const shot of laserShots) {
+    shot.y += shot.vy * dt;
+    handleLaserCollisions(shot);
+    if (shot.y + LASER_WIDTH < 0) {
+      shot.alive = false;
+    }
+  }
+  laserShots = laserShots.filter((shot) => shot.alive);
+  if (state.running && bricks.every((brick) => !brick.alive)) {
+    advanceLevel();
+    laserShots = [];
+  }
+}
+
+function drawLaserShots() {
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.strokeStyle = LASER_COLOR;
+  ctx.shadowColor = LASER_COLOR;
+  ctx.shadowBlur = 18;
+  for (const shot of laserShots) {
+    ctx.lineWidth = LASER_WIDTH;
+    ctx.beginPath();
+    ctx.moveTo(shot.x, shot.y);
+    ctx.lineTo(shot.x, shot.y - 32);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function handleLaserCollisions(shot) {
+  for (const brick of bricks) {
+    if (!brick.alive) {
+      continue;
+    }
+    if (
+      shot.y <= brick.y + brick.height &&
+      shot.y >= brick.y &&
+      shot.x >= brick.x &&
+      shot.x <= brick.x + brick.width
+    ) {
+      brick.alive = false;
+      shot.alive = false;
+      state.uber = Math.min(state.uber + 8, 100);
+      updateScore(120);
+      maybeSpawnPowerUp(brick);
+      break;
+    }
+  }
+}
+
+function choosePowerUpType() {
+  const index = Math.floor(Math.random() * POWERUP_POOL.length);
+  return POWERUP_POOL[index];
+}
+
+function updatePowerUps(dt, timestampMs) {
+  for (const powerUp of powerUps) {
+    powerUp.y += powerUp.vy * dt;
+    if (powerUp.y > canvas.height + POWERUP_RADIUS) {
+      powerUp.alive = false;
+      continue;
+    }
+    if (
+      powerUp.y + POWERUP_RADIUS >= paddle.y &&
+      powerUp.x >= paddle.x &&
+      powerUp.x <= paddle.x + paddle.width
+    ) {
+      activatePowerUp(powerUp.type, timestampMs);
+      powerUp.alive = false;
+    }
+  }
+  powerUps = powerUps.filter((powerUp) => powerUp.alive);
+}
+
+function drawPowerUps() {
+  for (const powerUp of powerUps) {
+    ctx.fillStyle = POWERUP_COLOR;
+    ctx.shadowColor = "rgba(255, 255, 255, 0.4)";
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.arc(powerUp.x, powerUp.y, POWERUP_RADIUS, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.shadowBlur = 0;
+}
+
+function maybeSpawnPowerUp(brick) {
+  if (Math.random() >= POWERUP_DROP_CHANCE) {
+    return;
+  }
+  powerUps.push({
+    x: brick.x + brick.width / 2,
+    y: brick.y + brick.height + 4,
+    vy: POWERUP_SPEED,
+    type: choosePowerUpType(),
+    alive: true,
+  });
+}
+
+function updateScore(amount) {
+  const delta = amount * state.scoreMultiplier;
+  state.score += delta;
+  dom.score.textContent = String(Math.floor(state.score)).padStart(4, "0");
+  if (state.score > state.highScore) {
+    state.highScore = state.score;
+    persistHighScore(state.highScore);
+  }
+}
+
+function handleBrickCollisions(currentBall, timestampMs) {
+  for (const brick of bricks) {
+    if (!brick.alive) {
+      continue;
+    }
+    const hitsX =
+      currentBall.x + currentBall.radius > brick.x &&
+      currentBall.x - currentBall.radius < brick.x + brick.width;
+    const hitsY =
+      currentBall.y + currentBall.radius > brick.y &&
+      currentBall.y - currentBall.radius < brick.y + brick.height;
+    if (hitsX && hitsY) {
+      brick.alive = false;
+      currentBall.vy *= -1;
+      updateScore(70);
+      state.status = "Tiili tuhottu";
+      state.uber = Math.min(state.uber + 8, 100);
+      if (state.uber >= UBER_THRESHOLD && !uberActive) {
+        activateUber(timestampMs);
+      }
+      maybeSpawnPowerUp(brick);
+      break;
+    }
+  }
+}
+
+function handlePaddleCollision(currentBall) {
+  if (
+    currentBall.y + currentBall.radius >= paddle.y &&
+    currentBall.x >= paddle.x &&
+    currentBall.x <= paddle.x + paddle.width &&
+    currentBall.vy > 0
+  ) {
+    currentBall.y = paddle.y - currentBall.radius;
+    currentBall.vy *= -1;
+    state.combo += 1;
+    const tempoBase = 120 + (state.modeTempoBoost || 0);
+    state.tempo = tempoBase + Math.min(state.combo * 2, 40);
+    state.uber = Math.min(state.uber + 5, 100);
+    if (currentBall === ball) {
+      state.status = "Pelaa!";
+    }
+  }
+}
+
+function activatePowerUp(type, timestampMs) {
+  powerupExpires = timestampMs + POWERUP_DURATION;
+  if (type === "score") {
+    state.scoreMultiplier = 2;
+    state.status = "Score boost!";
+    return;
+  }
+  if (type === "slow") {
+    slowActive = true;
+    slowExpires = timestampMs + SLOW_DURATION;
+    state.status = "Slow motion!";
+    return;
+  }
+  if (type === "multi") {
+    const spawnCount = Math.min(extraBalls.length + MULTI_BALL_COUNT, 4);
+    for (let i = 0; i < spawnCount; i += 1) {
+      extraBalls.push(createExtraBall());
+    }
+    state.status = "Multi-pallot pelissä";
+    return;
+  }
+  if (type === "laser") {
+    laserActive = true;
+    laserExpires = timestampMs + LASER_DURATION;
+    lastLaserShot = timestampMs - LASER_FIRE_INTERVAL;
+    spawnLaserShot();
+    state.status = "Laser-isku!";
+  }
+}
+
+function stopLaser() {
+  laserActive = false;
+  laserShots = [];
+  laserExpires = 0;
+  lastLaserShot = 0;
+}
+
+function activateUber(timestampMs) {
+  uberActive = true;
+  uberExpires = timestampMs + UBER_DURATION;
+  paddle.width = BASE_PADDLE_WIDTH + UBER_WIDTH_BONUS;
+  paddle.x = clamp(paddle.x - UBER_WIDTH_BONUS / 2, 0, canvas.width - paddle.width);
+  state.status = "Uber-tila!";
+  state.uber = 50;
+}
+
+function advanceLevel() {
+  state.level += 1;
+  const track = selectTrackForLevel(state.level);
+  state.status = `Level ${state.level} aloitettu — ${track ? track.name : "uus"}`;
+  state.uber = Math.min(state.uber + 20, 100);
+  state.combo = 0;
+  state.scoreMultiplier = 1;
+  powerupExpires = 0;
+  slowActive = false;
+  slowExpires = 0;
+  powerUps = [];
+  extraBalls = [];
+  stopLaser();
+  buildBricks(state.level);
+  resetBall(false);
+  refreshMusicNote();
+  if (musicEngine.isPlaying) {
+    musicEngine.start(track);
   }
 }
 
@@ -204,7 +586,7 @@ function update(dt, timestampMs) {
 
   if (state.scoreMultiplier > 1 && timestampMs >= powerupExpires) {
     state.scoreMultiplier = 1;
-    state.status = "Power-up ohi";
+    state.status = "Score boost ohi";
   }
 
   if (slowActive && timestampMs >= slowExpires) {
@@ -216,53 +598,57 @@ function update(dt, timestampMs) {
     state.beatPulse = Math.max(0, state.beatPulse - dt * BEAT_DECAY);
   }
 
+  if (laserActive) {
+    if (timestampMs >= laserExpires) {
+      stopLaser();
+      state.status = "Laser ohi";
+    }
+    if (timestampMs - lastLaserShot >= LASER_FIRE_INTERVAL) {
+      spawnLaserShot();
+      lastLaserShot = timestampMs;
+    }
+  }
+
+  updateLaserShots(dt);
+
   if (!state.running) {
     return;
   }
 
   const motionFactor = slowActive ? SLOW_MULTIPLIER : 1;
-  ball.x += ball.vx * dt * motionFactor;
-  ball.y += ball.vy * dt * motionFactor;
-
-  if (ball.x - ball.radius <= 0 || ball.x + ball.radius >= canvas.width) {
-    ball.vx *= -1;
-  }
-  if (ball.y - ball.radius <= 0) {
-    ball.vy *= -1;
-    updateScore(10);
-  }
-
-  handleBrickCollisions(timestampMs);
+  advanceBall(ball, dt, motionFactor, timestampMs, true);
+  updateExtraBalls(dt, timestampMs, motionFactor);
   updatePowerUps(dt, timestampMs);
-
-  if (
-    ball.y + ball.radius >= paddle.y &&
-    ball.x >= paddle.x &&
-    ball.x <= paddle.x + paddle.width
-  ) {
-    ball.y = paddle.y - ball.radius;
-    ball.vy *= -1;
-    state.combo += 1;
-    const tempoBase = 120 + (state.modeTempoBoost || 0);
-    state.tempo = tempoBase + Math.min(state.combo * 2, 40);
-    state.uber = Math.min(state.uber + 5, 100);
-  }
-
-  if (ball.y - ball.radius > canvas.height) {
-    state.lives -= 1;
-    state.combo = 0;
-    state.status = state.lives > 0 ? "Paina välilyöntiä jatkaaksesi" : "Peli ohi — lataa sivu uudelleen";
-    state.running = false;
-    resetBall(false);
-  }
 }
 
-function updateScore(amount) {
-  state.score += amount;
-  dom.score.textContent = String(state.score).padStart(4, "0");
-  if (state.score > state.highScore) {
-    state.highScore = state.score;
-    persistHighScore(state.highScore);
+function advanceBall(currentBall, dt, motionFactor, timestampMs, isPrimary) {
+  currentBall.x += currentBall.vx * dt * motionFactor;
+  currentBall.y += currentBall.vy * dt * motionFactor;
+
+  if (currentBall.x - currentBall.radius <= 0 || currentBall.x + currentBall.radius >= canvas.width) {
+    currentBall.vx *= -1;
+  }
+  if (currentBall.y - currentBall.radius <= 0) {
+    currentBall.vy *= -1;
+    if (isPrimary) {
+      updateScore(10);
+    }
+  }
+
+  handleBrickCollisions(currentBall, timestampMs);
+  handlePaddleCollision(currentBall);
+
+  if (currentBall.y - currentBall.radius > canvas.height) {
+    if (isPrimary) {
+      state.lives -= 1;
+      state.combo = 0;
+      state.status =
+        state.lives > 0 ? "Paina välilyöntiä jatkaaksesi" : "Peli ohi — lataa sivu uudelleen";
+      state.running = false;
+      resetBall(false);
+    } else {
+      currentBall.active = false;
+    }
   }
 }
 
@@ -313,23 +699,6 @@ function drawPaddle() {
   ctx.shadowBlur = 0;
 }
 
-function drawBall() {
-  const gradient = ctx.createRadialGradient(
-    ball.x,
-    ball.y,
-    0,
-    ball.x,
-    ball.y,
-    ball.radius * 1.8
-  );
-  gradient.addColorStop(0, "#ffffff");
-  gradient.addColorStop(1, "rgba(99, 255, 186, 0.7)");
-  ctx.fillStyle = gradient;
-  ctx.beginPath();
-  ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
-  ctx.fill();
-}
-
 function drawBricks() {
   for (const brick of bricks) {
     if (!brick.alive) {
@@ -344,118 +713,145 @@ function drawBricks() {
   ctx.shadowBlur = 0;
 }
 
-function drawPowerUps() {
-  for (const powerUp of powerUps) {
-    ctx.fillStyle = POWERUP_COLOR;
-    ctx.shadowColor = "rgba(255, 255, 255, 0.4)";
-    ctx.shadowBlur = 10;
-    ctx.beginPath();
-    ctx.arc(powerUp.x, powerUp.y, POWERUP_RADIUS, 0, Math.PI * 2);
-    ctx.fill();
+function draw() {
+  drawBackgroundGrid();
+  drawBricks();
+  drawPowerUps();
+  drawLaserShots();
+  drawBall(ball);
+  for (const extraBall of extraBalls) {
+    drawBall(extraBall);
   }
-  ctx.shadowBlur = 0;
+  drawPaddle();
 }
 
-function handleBrickCollisions(timestampMs) {
-  for (const brick of bricks) {
-    if (!brick.alive) {
-      continue;
-    }
-    const hitsX =
-      ball.x + ball.radius > brick.x &&
-      ball.x - ball.radius < brick.x + brick.width;
-    const hitsY =
-      ball.y + ball.radius > brick.y &&
-      ball.y - ball.radius < brick.y + brick.height;
-    if (hitsX && hitsY) {
-      brick.alive = false;
-      ball.vy *= -1;
-      updateScore(70);
-      state.status = "Tiili tuhottu";
-      state.uber = Math.min(state.uber + 8, 100);
-      if (state.uber >= UBER_THRESHOLD && !uberActive) {
-        activateUber(timestampMs);
-      }
-      maybeSpawnPowerUp(brick);
-      break;
-    }
+function refreshHud() {
+  dom.lives.textContent = state.lives;
+  dom.combo.textContent = `${state.combo}x`;
+  dom.tempo.textContent = state.tempo;
+  dom.status.textContent = state.status;
+  dom.uberFill.style.width = `${state.uber}%`;
+  if (dom.highScore) {
+    dom.highScore.textContent = String(state.highScore).padStart(4, "0");
   }
-  const cleared = bricks.every((brick) => !brick.alive);
-  if (cleared) {
-    advanceLevel();
+  if (dom.levelProgress) {
+    const alive = bricks.filter((brick) => brick.alive).length;
+    const progress = progressPercentage(state.totalBricks, alive);
+    dom.levelProgress.style.width = `${progress}%`;
+  }
+  if (dom.levelValue) {
+    dom.levelValue.textContent = String(state.level);
   }
 }
 
-function activateUber(timestampMs) {
-  uberActive = true;
-  uberExpires = timestampMs + UBER_DURATION;
-  paddle.width = BASE_PADDLE_WIDTH + UBER_WIDTH_BONUS;
-  paddle.x = clamp(paddle.x - UBER_WIDTH_BONUS / 2, 0, canvas.width - paddle.width);
-  state.status = "Uber-tila!";
-  state.uber = 50;
+let lastTime = performance.now();
+
+function loop(now) {
+  const delta = (now - lastTime) / 1000;
+  lastTime = now;
+  update(delta, now);
+  draw(now / 1000);
+  refreshHud();
+  requestAnimationFrame(loop);
 }
 
-function maybeSpawnPowerUp(brick) {
-  if (Math.random() >= POWERUP_DROP_CHANCE) {
+window.addEventListener("keydown", (event) => {
+  if (event.code === "ArrowLeft" || event.code === "KeyA") {
+    input.left = true;
+  }
+  if (event.code === "ArrowRight" || event.code === "KeyD") {
+    input.right = true;
+  }
+  if (event.code === "Space" && !state.running && state.lives > 0) {
+    state.running = true;
+    state.status = "Pelaa!";
+  }
+});
+
+window.addEventListener("keyup", (event) => {
+  if (event.code === "ArrowLeft" || event.code === "KeyA") {
+    input.left = false;
+  }
+  if (event.code === "ArrowRight" || event.code === "KeyD") {
+    input.right = false;
+  }
+});
+
+canvas.addEventListener("click", () => {
+  if (!state.running && state.lives > 0) {
+    state.running = true;
+    state.status = "Pelaa!";
+  }
+});
+
+function populateMusicTracks() {
+  if (!dom.musicSelect || !TRACKS.length) {
     return;
   }
-  powerUps.push({
-    x: brick.x + brick.width / 2,
-    y: brick.y + brick.height + 4,
-    vy: POWERUP_SPEED,
-    type: Math.random() < 0.5 ? "score" : "slow",
-    alive: true,
-  });
+  dom.musicSelect.innerHTML = TRACKS.map(
+    (track) => `<option value="${track.id}">${track.name} (${track.bpm} bpm)</option>`
+  ).join("");
+  dom.musicSelect.value = TRACKS[0].id;
 }
 
-function updatePowerUps(dt, timestampMs) {
-  for (const powerUp of powerUps) {
-    powerUp.y += powerUp.vy * dt;
-    if (powerUp.y > canvas.height + POWERUP_RADIUS) {
-      powerUp.alive = false;
-      continue;
+function getSelectedTrack() {
+  const id = dom.musicSelect?.value;
+  return TRACKS.find((track) => track.id === id) || TRACKS[0];
+}
+
+function formatStyle(style) {
+  if (!style) {
+    return "";
+  }
+  return style.charAt(0).toUpperCase() + style.slice(1);
+}
+
+function refreshMusicNote() {
+  const track = getSelectedTrack();
+  const styleLabel = formatStyle(track?.style);
+  if (dom.musicNote) {
+    dom.musicNote.textContent = `${track?.name || "Tekno"} — ${styleLabel} ${track?.bpm || 120} bpm`;
+  }
+  if (dom.musicToggle) {
+    dom.musicToggle.textContent = musicEngine.isPlaying ? "Stop" : `Play ${styleLabel || "tekno"}`;
+  }
+}
+
+function selectTrackForLevel(level) {
+  if (!TRACKS.length) {
+    return { id: "nokey", name: "Tekno" };
+  }
+  const index = (level - 1) % TRACKS.length;
+  const track = TRACKS[index];
+  if (dom.musicSelect) {
+    dom.musicSelect.value = track.id;
+  }
+  return track;
+}
+
+function applyMode(mode) {
+  const settings = MODE_SETTINGS[mode] || MODE_SETTINGS.classic;
+  const previousSpeed = state.speedFactor || 1;
+  state.mode = mode;
+  state.speedFactor = settings.speed;
+  state.modeTempoBoost = settings.tempoBoost;
+  if (state.running) {
+    const multiplier = settings.speed / Math.max(previousSpeed, 0.1);
+    ball.vx *= multiplier;
+    ball.vy *= multiplier;
+    for (const extraBall of extraBalls) {
+      extraBall.vx *= multiplier;
+      extraBall.vy *= multiplier;
     }
-    if (
-      powerUp.y + POWERUP_RADIUS >= paddle.y &&
-      powerUp.x >= paddle.x &&
-      powerUp.x <= paddle.x + paddle.width
-    ) {
-      activatePowerUp(powerUp.type, timestampMs);
-      powerUp.alive = false;
-    }
   }
-  powerUps = powerUps.filter((powerUp) => powerUp.alive);
-}
-
-function activatePowerUp(type, timestampMs) {
-  if (type === "score") {
-    state.scoreMultiplier = 2;
-    powerupExpires = timestampMs + POWERUP_DURATION;
-    state.status = "Score boost!";
-    return;
+  if (!state.running) {
+    state.status = `${settings.label} moodi`;
   }
-  if (type === "slow") {
-    slowActive = true;
-    slowExpires = timestampMs + SLOW_DURATION;
-    state.status = "Slow motion!";
+  if (modeControl) {
+    modeControl.value = mode;
   }
-}
-
-function advanceLevel() {
-  state.level += 1;
-  const track = selectTrackForLevel(state.level);
-  state.status = `Level ${state.level} aloitettu — ${track.name}`;
-  state.uber = Math.min(state.uber + 20, 100);
-  state.combo = 0;
-  state.scoreMultiplier = 1;
-  powerupExpires = 0;
-  powerUps = [];
-  buildBricks(state.level);
-  resetBall(false);
-  refreshMusicNote();
-  if (musicEngine.isPlaying) {
-    musicEngine.start(track);
-  }
+  const tempoBase = 120 + state.modeTempoBoost;
+  state.tempo = tempoBase + Math.min(state.combo * 2, 40);
 }
 
 class MusicEngine {
@@ -531,145 +927,47 @@ musicEngine.onBeat = () => {
   state.beatPulse = 1;
 };
 
-function populateMusicTracks() {
-  if (!dom.musicSelect) {
-    return;
-  }
-  dom.musicSelect.innerHTML = TRACKS.map(
-    (track) => `<option value="${track.id}">${track.name} (${track.bpm} bpm)</option>`
-  ).join("");
-  dom.musicSelect.value = TRACKS[0].id;
+function applyModeSettingsOnStart() {
+  applyMode(state.mode);
 }
 
-function getSelectedTrack() {
-  const id = dom.musicSelect?.value;
-  return TRACKS.find((track) => track.id === id) || TRACKS[0];
-}
-
-function formatStyle(style) {
-  if (!style) {
-    return "";
-  }
-  return style.charAt(0).toUpperCase() + style.slice(1);
-}
-
-function refreshMusicNote() {
-  const track = getSelectedTrack();
-  const styleLabel = formatStyle(track.style);
-  if (dom.musicNote) {
-    dom.musicNote.textContent = `${track.name} — ${styleLabel} ${track.bpm} bpm`;
-  }
-  if (dom.musicToggle) {
-    dom.musicToggle.textContent = musicEngine.isPlaying ? "Stop" : `Play ${styleLabel}`;
+async function loadAssets() {
+  try {
+    const [musicConfig, levelConfig] = await Promise.all([
+      fetch(MUSIC_CONFIG_PATH).then((res) => res.json()),
+      fetch(LEVELS_CONFIG_PATH).then((res) => res.json()),
+    ]);
+    if (musicConfig?.tracks?.length) {
+      TRACKS = musicConfig.tracks;
+    }
+    if (levelConfig?.levels?.length) {
+      LEVEL_PATTERNS = levelConfig.levels;
+    }
+  } catch (error) {
+    console.warn("config load failed, using defaults", error);
+    TRACKS = [...DEFAULT_TRACKS];
+    LEVEL_PATTERNS = [...DEFAULT_LEVEL_PATTERNS];
   }
 }
 
-function selectTrackForLevel(level) {
-  const index = (level - 1) % TRACKS.length;
-  const track = TRACKS[index];
-  if (dom.musicSelect) {
-    dom.musicSelect.value = track.id;
+async function initGame() {
+  await loadAssets();
+  populateMusicTracks();
+  const track = selectTrackForLevel(state.level);
+  refreshMusicNote();
+  if (musicEngine.isPlaying) {
+    musicEngine.start(track);
   }
-  return track;
-}
-
-function applyMode(mode) {
-  const settings = MODE_SETTINGS[mode] || MODE_SETTINGS.classic;
-  const previousSpeed = state.speedFactor || 1;
-  state.mode = mode;
-  state.speedFactor = settings.speed;
-  state.modeTempoBoost = settings.tempoBoost;
-  if (state.running) {
-    const multiplier = settings.speed / Math.max(previousSpeed, 0.1);
-    ball.vx *= multiplier;
-    ball.vy *= multiplier;
-  }
-  if (!state.running) {
-    state.status = `${settings.label} moodi`;
-  }
-  if (modeControl) {
-    modeControl.value = mode;
-  }
-  const tempoBase = 120 + state.modeTempoBoost;
-  state.tempo = tempoBase + Math.min(state.combo * 2, 40);
-}
-
-function draw() {
-  drawBackgroundGrid();
-  drawBricks();
-  drawPowerUps();
-  drawPaddle();
-  drawBall();
-}
-
-function refreshHud() {
-  dom.lives.textContent = state.lives;
-  dom.combo.textContent = `${state.combo}x`;
-  dom.tempo.textContent = state.tempo;
-  dom.status.textContent = state.status;
-  dom.uberFill.style.width = `${state.uber}%`;
-  if (dom.highScore) {
-    dom.highScore.textContent = String(state.highScore).padStart(4, "0");
-  }
-  if (dom.levelProgress) {
-    const alive = bricks.filter((brick) => brick.alive).length;
-    const progress = progressPercentage(state.totalBricks, alive);
-    dom.levelProgress.style.width = `${progress}%`;
-  }
-  if (dom.levelValue) {
-    dom.levelValue.textContent = String(state.level);
-  }
-}
-
-let lastTime = performance.now();
-
-function loop(now) {
-  const delta = (now - lastTime) / 1000;
-  lastTime = now;
-  update(delta, now);
-  draw();
-  refreshHud();
+  configureCanvas();
   requestAnimationFrame(loop);
 }
 
-window.addEventListener("keydown", (event) => {
-  if (event.code === "ArrowLeft" || event.code === "KeyA") {
-    input.left = true;
-  }
-  if (event.code === "ArrowRight" || event.code === "KeyD") {
-    input.right = true;
-  }
-  if (event.code === "Space" && !state.running && state.lives > 0) {
-    state.running = true;
-    state.status = "Pelaa!";
-  }
-});
-
-window.addEventListener("keyup", (event) => {
-  if (event.code === "ArrowLeft" || event.code === "KeyA") {
-    input.left = false;
-  }
-  if (event.code === "ArrowRight" || event.code === "KeyD") {
-    input.right = false;
-  }
-});
-
-canvas.addEventListener("click", () => {
-  if (!state.running && state.lives > 0) {
-    state.running = true;
-    state.status = "Pelaa!";
-  }
-});
-
-populateMusicTracks();
-selectTrackForLevel(state.level);
-refreshMusicNote();
-
 if (dom.musicSelect) {
   dom.musicSelect.addEventListener("change", () => {
+    const track = getSelectedTrack();
     if (musicEngine.isPlaying) {
-      musicEngine.start(getSelectedTrack());
-      state.status = `Soitetaan ${getSelectedTrack().name}`;
+      musicEngine.start(track);
+      state.status = `Soitetaan ${track.name}`;
     }
     refreshMusicNote();
   });
@@ -693,6 +991,5 @@ if (modeControl) {
   modeControl.addEventListener("change", () => applyMode(modeControl.value));
 }
 
-applyMode(state.mode);
-configureCanvas();
-requestAnimationFrame(loop);
+applyModeSettingsOnStart();
+initGame();

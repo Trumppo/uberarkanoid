@@ -1,0 +1,9 @@
+{
+  "tracks": [
+    {"id": "tekno-pulse", "name": "Tekno Pulse", "style": "tekno", "bpm": 142},
+    {"id": "gabber-core", "name": "Gabber Core", "style": "gabber", "bpm": 175},
+    {"id": "acid-tekno", "name": "Acid Tekno", "style": "tekno", "bpm": 150},
+    {"id": "turbo-rush", "name": "Turbo Rush", "style": "gabber", "bpm": 168},
+    {"id": "neon-surge", "name": "Neon Surge", "style": "tekno", "bpm": 158}
+  ]
+}
