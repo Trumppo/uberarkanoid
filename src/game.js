@@ -103,6 +103,9 @@ const BRICK_OFFSET_SIDE = 34;
 const BRICK_COLORS = ["#ff4fd8", "#30d9ff", "#62ff8a", "#ffd93d", "#ff6b7f"];
 
 const POWERUP_DROP_CHANCE = 0.2;
+const UBER_DROP_BONUS = 0.18;
+const UBER_METER_SCALE = 0.12;
+const UBER_DROP_CAP = 0.8;
 const POWERUP_SPEED = 110;
 const POWERUP_RADIUS = 12;
 const POWERUP_DURATION = 5200;
@@ -537,7 +540,13 @@ function drawPowerUps() {
 }
 
 function maybeSpawnPowerUp(brick) {
-  if (Math.random() >= POWERUP_DROP_CHANCE) {
+  const uberFraction = Math.min(state.uber / 100, 1);
+  const meterBoost = uberFraction * UBER_METER_SCALE;
+  const dropChance = Math.min(
+    UBER_DROP_CAP,
+    POWERUP_DROP_CHANCE + (uberActive ? UBER_DROP_BONUS : 0) + meterBoost
+  );
+  if (Math.random() >= dropChance) {
     return;
   }
   powerUps.push({
