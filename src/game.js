@@ -20,6 +20,8 @@ const state = {
   currentRows: 0,
   totalBricks: 0,
   beatPulse: 0,
+  gameOver: false,
+  explosionProgress: 0,
 };
 
 const HIGHSCORE_KEY = "uberarkanoid-highscore";
@@ -205,6 +207,8 @@ function configureCanvas() {
   paddle.y = canvas.height - 40;
   state.combo = 0;
   state.uber = 60;
+  state.gameOver = false;
+  state.explosionProgress = 0;
   uberActive = false;
   uberExpires = 0;
   state.scoreMultiplier = 1;
@@ -226,7 +230,9 @@ function resetBall(acceptLaunch) {
   ball.vx = (Math.random() > 0.5 ? 1 : -1) * 220 * factor;
   ball.vy = -320 * factor;
   state.running = acceptLaunch;
-  state.status = acceptLaunch ? "Pelaa!" : "Paina välilyöntiä aloittaaksesi";
+  if (!state.gameOver) {
+    state.status = acceptLaunch ? "Pelaa!" : "Paina välilyöntiä aloittaaksesi";
+  }
   extraBalls = [];
   laserShots = [];
   stopLaser();
@@ -598,7 +604,11 @@ function update(dt, timestampMs) {
     state.beatPulse = Math.max(0, state.beatPulse - dt * BEAT_DECAY);
   }
 
-  if (laserActive) {
+  if (state.gameOver) {
+    state.explosionProgress = Math.min(1, state.explosionProgress + dt * 0.6);
+  }
+
+  if (laserActive && !state.gameOver) {
     if (timestampMs >= laserExpires) {
       stopLaser();
       state.status = "Laser ohi";
@@ -609,7 +619,11 @@ function update(dt, timestampMs) {
     }
   }
 
-  updateLaserShots(dt);
+  if (!state.gameOver) {
+    updateLaserShots(dt);
+  } else {
+    laserShots = [];
+  }
 
   if (!state.running) {
     return;
@@ -642,10 +656,16 @@ function advanceBall(currentBall, dt, motionFactor, timestampMs, isPrimary) {
     if (isPrimary) {
       state.lives -= 1;
       state.combo = 0;
-      state.status =
-        state.lives > 0 ? "Paina välilyöntiä jatkaaksesi" : "Peli ohi — lataa sivu uudelleen";
       state.running = false;
       resetBall(false);
+      if (state.lives <= 0) {
+        state.gameOver = true;
+        state.explosionProgress = 0;
+        state.status = "Game over";
+        stopLaser();
+      } else {
+        state.status = "Paina välilyöntiä jatkaaksesi";
+      }
     } else {
       currentBall.active = false;
     }
@@ -723,6 +743,36 @@ function draw() {
     drawBall(extraBall);
   }
   drawPaddle();
+  drawGameOverOverlay();
+}
+
+function drawGameOverOverlay() {
+  if (!state.gameOver) {
+    return;
+  }
+  const centerX = canvas.width / 2;
+  const centerY = canvas.height / 2;
+  const maxRadius = Math.hypot(canvas.width, canvas.height) * 0.6;
+  const radius = maxRadius * (0.35 + 0.65 * state.explosionProgress);
+  const gradient = ctx.createRadialGradient(centerX, centerY, radius * 0.1, centerX, centerY, radius);
+  gradient.addColorStop(0, "rgba(255, 150, 0, 0.9)");
+  gradient.addColorStop(0.5, "rgba(255, 39, 112, 0.35)");
+  gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.restore();
+  ctx.save();
+  ctx.font = "bold 72px var(--font-display, 'Orbitron')";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.lineWidth = 10;
+  ctx.strokeStyle = "rgba(255, 0, 110, 0.85)";
+  ctx.fillStyle = "rgba(255, 255, 255, 0.98)";
+  ctx.strokeText("GAME OVER", centerX, centerY);
+  ctx.fillText("GAME OVER", centerX, centerY);
+  ctx.restore();
 }
 
 function refreshHud() {
