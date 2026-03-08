@@ -22,11 +22,17 @@ const state = {
   beatPulse: 0,
   gameOver: false,
   explosionProgress: 0,
+  paused: false,
+  backgroundAngle: 0,
+  backgroundPulse: 0,
+  backgroundOrbit: 0,
+  paddleModifiers: { uber: 0, expand: 0, shrink: 0 },
 };
 
 const HIGHSCORE_KEY = "uberarkanoid-highscore";
 
 const BASE_PADDLE_WIDTH = 180;
+const PADDLE_MIN_WIDTH = 90;
 const paddle = {
   width: BASE_PADDLE_WIDTH,
   height: 14,
@@ -101,12 +107,32 @@ const POWERUP_SPEED = 110;
 const POWERUP_RADIUS = 12;
 const POWERUP_DURATION = 5200;
 const POWERUP_COLOR = "rgba(255, 225, 79, 0.9)";
+const EXPAND_BONUS = 120;
+const SHRINK_PENALTY = -70;
+const SHIELD_DURATION = 6200;
+const POWERUP_LABELS = {
+  score: "S",
+  slow: "Z",
+  multi: "M",
+  laser: "L",
+  life: "H",
+  expand: "E",
+  shrink: "C",
+  shield: "A",
+  pulse: "P",
+};
 let powerupExpires = 0;
 
 const SLOW_MULTIPLIER = 0.6;
 const SLOW_DURATION = 5200;
 let slowActive = false;
 let slowExpires = 0;
+let expandActive = false;
+let expandExpires = 0;
+let shrinkActive = false;
+let shrinkExpires = 0;
+let shieldActive = false;
+let shieldExpires = 0;
 
 const MUSIC_CONFIG_PATH = "config/music.json";
 const LEVELS_CONFIG_PATH = "levels/levels.json";
@@ -157,7 +183,19 @@ const DEFAULT_LEVEL_PATTERNS = [
 
 let LEVEL_PATTERNS = [...DEFAULT_LEVEL_PATTERNS];
 
-const POWERUP_POOL = ["score", "score", "slow", "multi", "laser"];
+const POWERUP_POOL = [
+  "score",
+  "score",
+  "slow",
+  "slow",
+  "multi",
+  "laser",
+  "life",
+  "expand",
+  "shrink",
+  "shield",
+  "pulse",
+];
 
 let bricks = [];
 let uberActive = false;
@@ -204,13 +242,18 @@ function persistHighScore(value) {
 function configureCanvas() {
   canvas.width = 960;
   canvas.height = 540;
-  paddle.width = BASE_PADDLE_WIDTH;
-  paddle.x = canvas.width / 2 - paddle.width / 2;
   paddle.y = canvas.height - 40;
+  resetPaddleModifiers();
+  recalcPaddleWidth();
+  paddle.x = canvas.width / 2 - paddle.width / 2;
   state.combo = 0;
   state.uber = 60;
   state.gameOver = false;
   state.explosionProgress = 0;
+  state.backgroundAngle = 0;
+  state.backgroundOrbit = 0;
+  state.backgroundPulse = 0;
+  state.paused = false;
   uberActive = false;
   uberExpires = 0;
   state.scoreMultiplier = 1;
@@ -221,8 +264,55 @@ function configureCanvas() {
   stopLaser();
   slowActive = false;
   slowExpires = 0;
+  expandActive = false;
+  expandExpires = 0;
+  shrinkActive = false;
+  shrinkExpires = 0;
+  shieldActive = false;
+  shieldExpires = 0;
   buildBricks();
   resetBall(false);
+}
+
+function recalcPaddleWidth() {
+  const modifierSum =
+    state.paddleModifiers.uber + state.paddleModifiers.expand + state.paddleModifiers.shrink;
+  const targetWidth = BASE_PADDLE_WIDTH + modifierSum;
+  paddle.width = clamp(targetWidth, PADDLE_MIN_WIDTH, canvas.width - 30);
+  paddle.x = clamp(paddle.x, 0, canvas.width - paddle.width);
+}
+
+function resetPaddleModifiers() {
+  state.paddleModifiers.uber = 0;
+  state.paddleModifiers.expand = 0;
+  state.paddleModifiers.shrink = 0;
+  recalcPaddleWidth();
+}
+
+function restartGame() {
+  state.lives = 3;
+  state.score = 0;
+  state.combo = 0;
+  state.level = 1;
+  state.scoreMultiplier = 1;
+  state.uber = 60;
+  state.status = "Valmiina";
+  state.gameOver = false;
+  state.explosionProgress = 0;
+  state.backgroundPulse = 0;
+  state.backgroundAngle = 0;
+  state.backgroundOrbit = 0;
+  state.paused = false;
+  expandActive = false;
+  expandExpires = 0;
+  shrinkActive = false;
+  shrinkExpires = 0;
+  shieldActive = false;
+  shieldExpires = 0;
+  resetPaddleModifiers();
+  updateMusicForCurrentLevel();
+  configureCanvas();
+  state.running = false;
 }
 
 function resetBall(acceptLaunch) {
@@ -232,6 +322,7 @@ function resetBall(acceptLaunch) {
   ball.vx = (Math.random() > 0.5 ? 1 : -1) * 220 * factor;
   ball.vy = -320 * factor;
   state.running = acceptLaunch;
+  state.paused = !acceptLaunch;
   if (!state.gameOver) {
     state.status = acceptLaunch ? "Pelaa!" : "Paina välilyöntiä aloittaaksesi";
   }
@@ -357,10 +448,6 @@ function updateLaserShots(dt) {
     }
   }
   laserShots = laserShots.filter((shot) => shot.alive);
-  if (state.running && bricks.every((brick) => !brick.alive)) {
-    advanceLevel();
-    laserShots = [];
-  }
 }
 
 function drawLaserShots() {
@@ -407,6 +494,7 @@ function choosePowerUpType() {
 
 function updatePowerUps(dt, timestampMs) {
   for (const powerUp of powerUps) {
+    powerUp.phase = (powerUp.phase || 0) + dt * 5;
     powerUp.y += powerUp.vy * dt;
     if (powerUp.y > canvas.height + POWERUP_RADIUS) {
       powerUp.alive = false;
@@ -426,14 +514,26 @@ function updatePowerUps(dt, timestampMs) {
 
 function drawPowerUps() {
   for (const powerUp of powerUps) {
+    const scale = 1 + Math.sin(powerUp.phase || 0) * 0.18;
+    const radius = POWERUP_RADIUS * scale;
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
     ctx.fillStyle = POWERUP_COLOR;
-    ctx.shadowColor = "rgba(255, 255, 255, 0.4)";
-    ctx.shadowBlur = 10;
+    ctx.shadowColor = POWERUP_COLOR;
+    ctx.shadowBlur = 18;
     ctx.beginPath();
-    ctx.arc(powerUp.x, powerUp.y, POWERUP_RADIUS, 0, Math.PI * 2);
+    ctx.arc(powerUp.x, powerUp.y, radius, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
+    ctx.save();
+    ctx.fillStyle = "#0d081c";
+    ctx.font = `bold ${16 + scale * 8}px var(--font-display, Orbitron)`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const label = POWERUP_LABELS[powerUp.type] || powerUp.type.charAt(0).toUpperCase();
+    ctx.fillText(label, powerUp.x, powerUp.y);
+    ctx.restore();
   }
-  ctx.shadowBlur = 0;
 }
 
 function maybeSpawnPowerUp(brick) {
@@ -445,6 +545,7 @@ function maybeSpawnPowerUp(brick) {
     y: brick.y + brick.height + 4,
     vy: POWERUP_SPEED,
     type: choosePowerUpType(),
+    phase: 0,
     alive: true,
   });
 }
@@ -506,31 +607,68 @@ function handlePaddleCollision(currentBall) {
 
 function activatePowerUp(type, timestampMs) {
   powerupExpires = timestampMs + POWERUP_DURATION;
-  if (type === "score") {
-    state.scoreMultiplier = 2;
-    state.status = "Score boost!";
-    return;
-  }
-  if (type === "slow") {
-    slowActive = true;
-    slowExpires = timestampMs + SLOW_DURATION;
-    state.status = "Slow motion!";
-    return;
-  }
-  if (type === "multi") {
-    const spawnCount = Math.min(extraBalls.length + MULTI_BALL_COUNT, 4);
-    for (let i = 0; i < spawnCount; i += 1) {
-      extraBalls.push(createExtraBall());
+  switch (type) {
+    case "score":
+      state.scoreMultiplier = 2;
+      state.status = "Score boost!";
+      break;
+    case "slow":
+      slowActive = true;
+      slowExpires = timestampMs + SLOW_DURATION;
+      state.status = "Slow motion!";
+      break;
+    case "multi": {
+      const spawnCount = Math.min(extraBalls.length + MULTI_BALL_COUNT, 4);
+      for (let i = 0; i < spawnCount; i += 1) {
+        extraBalls.push(createExtraBall());
+      }
+      state.status = "Multi-pallot pelissä";
+      break;
     }
-    state.status = "Multi-pallot pelissä";
-    return;
-  }
-  if (type === "laser") {
-    laserActive = true;
-    laserExpires = timestampMs + LASER_DURATION;
-    lastLaserShot = timestampMs - LASER_FIRE_INTERVAL;
-    spawnLaserShot();
-    state.status = "Laser-isku!";
+    case "laser":
+      laserActive = true;
+      laserExpires = timestampMs + LASER_DURATION;
+      lastLaserShot = timestampMs - LASER_FIRE_INTERVAL;
+      spawnLaserShot();
+      state.status = "Laser-isku!";
+      break;
+    case "life":
+      state.lives = Math.min(state.lives + 1, 9);
+      state.status = "Lisäelämä!";
+      state.backgroundPulse = 1;
+      state.uber = Math.min(state.uber + 12, 100);
+      return;
+    case "expand":
+      expandActive = true;
+      expandExpires = timestampMs + POWERUP_DURATION;
+      state.paddleModifiers.shrink = 0;
+      state.paddleModifiers.expand = EXPAND_BONUS;
+      recalcPaddleWidth();
+      state.status = "Maila laajeni!";
+      break;
+    case "shrink":
+      shrinkActive = true;
+      shrinkExpires = timestampMs + POWERUP_DURATION;
+      state.paddleModifiers.expand = 0;
+      state.paddleModifiers.shrink = SHRINK_PENALTY;
+      recalcPaddleWidth();
+      state.status = "Maila kutistui!";
+      break;
+    case "shield":
+      shieldActive = true;
+      shieldExpires = timestampMs + SHIELD_DURATION;
+      state.status = "Shield aktivoitu";
+      state.backgroundPulse = 1;
+      state.uber = Math.min(state.uber + 18, 100);
+      break;
+    case "pulse":
+      state.beatPulse = 1;
+      state.backgroundPulse = 1;
+      state.status = "Beat pulse!";
+      state.uber = Math.min(state.uber + 20, 100);
+      break;
+    default:
+      state.status = "Power-up aktivoitu";
   }
 }
 
@@ -544,8 +682,8 @@ function stopLaser() {
 function activateUber(timestampMs) {
   uberActive = true;
   uberExpires = timestampMs + UBER_DURATION;
-  paddle.width = BASE_PADDLE_WIDTH + UBER_WIDTH_BONUS;
-  paddle.x = clamp(paddle.x - UBER_WIDTH_BONUS / 2, 0, canvas.width - paddle.width);
+  state.paddleModifiers.uber = UBER_WIDTH_BONUS;
+  recalcPaddleWidth();
   state.status = "Uber-tila!";
   state.uber = 50;
 }
@@ -567,6 +705,17 @@ function advanceLevel() {
   resetBall(false);
 }
 
+function checkLevelCompletion() {
+  if (!state.running || state.gameOver || !bricks.length) {
+    return;
+  }
+  const remaining = bricks.some((brick) => brick.alive);
+  if (!remaining) {
+    state.beatPulse = 1;
+    advanceLevel();
+  }
+}
+
 function update(dt, timestampMs) {
   if (input.left) {
     paddle.x -= paddle.speed * dt;
@@ -575,11 +724,14 @@ function update(dt, timestampMs) {
     paddle.x += paddle.speed * dt;
   }
   paddle.x = clamp(paddle.x, 0, canvas.width - paddle.width);
+  state.backgroundAngle += dt * 0.18;
+  state.backgroundOrbit += dt * 32;
+  state.backgroundPulse = Math.max(0, state.backgroundPulse - dt * 0.7);
 
   if (uberActive && timestampMs >= uberExpires) {
     uberActive = false;
-    paddle.width = BASE_PADDLE_WIDTH;
-    paddle.x = clamp(paddle.x, 0, canvas.width - paddle.width);
+    state.paddleModifiers.uber = 0;
+    recalcPaddleWidth();
     state.status = "Uber-tila valmis";
   }
 
@@ -595,6 +747,25 @@ function update(dt, timestampMs) {
   if (slowActive && timestampMs >= slowExpires) {
     slowActive = false;
     state.status = "Slow motion ohi";
+  }
+
+  if (expandActive && timestampMs >= expandExpires) {
+    expandActive = false;
+    state.paddleModifiers.expand = 0;
+    recalcPaddleWidth();
+    state.status = "Expand ohi";
+  }
+
+  if (shrinkActive && timestampMs >= shrinkExpires) {
+    shrinkActive = false;
+    state.paddleModifiers.shrink = 0;
+    recalcPaddleWidth();
+    state.status = "Shrink ohi";
+  }
+
+  if (shieldActive && timestampMs >= shieldExpires) {
+    shieldActive = false;
+    state.status = "Shield ohi";
   }
 
   if (state.beatPulse > 0) {
@@ -630,6 +801,7 @@ function update(dt, timestampMs) {
   advanceBall(ball, dt, motionFactor, timestampMs, true);
   updateExtraBalls(dt, timestampMs, motionFactor);
   updatePowerUps(dt, timestampMs);
+  checkLevelCompletion();
 }
 
 function advanceBall(currentBall, dt, motionFactor, timestampMs, isPrimary) {
@@ -651,6 +823,16 @@ function advanceBall(currentBall, dt, motionFactor, timestampMs, isPrimary) {
 
   if (currentBall.y - currentBall.radius > canvas.height) {
     if (isPrimary) {
+      if (shieldActive) {
+        shieldActive = false;
+        shieldExpires = 0;
+        state.status = "Shield esti menetyksen";
+        currentBall.vy = -Math.abs(currentBall.vy);
+        currentBall.y = canvas.height - currentBall.radius - 2;
+        state.backgroundPulse = 1;
+        state.uber = Math.min(state.uber + 6, 100);
+        return;
+      }
       state.lives -= 1;
       state.combo = 0;
       state.running = false;
@@ -669,12 +851,13 @@ function advanceBall(currentBall, dt, motionFactor, timestampMs, isPrimary) {
   }
 }
 
-function drawBackgroundGrid() {
+function drawBackgroundGrid(time) {
   ctx.fillStyle = palette.card;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.strokeStyle = palette.grid;
-  ctx.lineWidth = 1;
   const spacing = 48;
+  const gridAlpha = 0.05 + 0.03 * Math.sin(state.backgroundOrbit * 0.17);
+  ctx.strokeStyle = `rgba(255, 255, 255, ${gridAlpha})`;
+  ctx.lineWidth = 1;
   for (let x = 0; x <= canvas.width; x += spacing) {
     ctx.beginPath();
     ctx.moveTo(x, 0);
@@ -687,10 +870,43 @@ function drawBackgroundGrid() {
     ctx.lineTo(canvas.width, y);
     ctx.stroke();
   }
-  if (state.beatPulse > 0) {
-    ctx.fillStyle = `rgba(255, 255, 255, ${0.06 * state.beatPulse})`;
+  drawFractalHalo(time);
+  const aura = Math.max(state.beatPulse, state.backgroundPulse);
+  if (aura > 0) {
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    ctx.fillStyle = `rgba(255, 255, 255, ${0.06 * aura})`;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
   }
+}
+
+function drawFractalHalo(time) {
+  ctx.save();
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.rotate(state.backgroundAngle);
+  ctx.globalCompositeOperation = "screen";
+  for (let layer = 0; layer < 3; layer += 1) {
+    const petals = 5 + layer * 2;
+    const radius = 80 + layer * 35 + Math.sin(time * 0.9 + layer) * 26;
+    ctx.strokeStyle = `rgba(255, 255, 255, ${0.07 - layer * 0.01})`;
+    ctx.lineWidth = 1 + layer * 0.8;
+    ctx.beginPath();
+    for (let point = 0; point <= petals; point += 1) {
+      const angle = (Math.PI * 2 * point) / petals;
+      const wobble = Math.sin(point * 0.5 + time * 1.2) * 15;
+      const x = Math.cos(angle) * (radius + wobble);
+      const y = Math.sin(angle) * (radius + wobble);
+      if (point === 0) {
+        ctx.moveTo(x, y);
+      } else {
+        ctx.lineTo(x, y);
+      }
+    }
+    ctx.stroke();
+    ctx.rotate(0.4);
+  }
+  ctx.restore();
 }
 
 function drawRoundedRect(x, y, width, height, radius) {
@@ -730,8 +946,8 @@ function drawBricks() {
   ctx.shadowBlur = 0;
 }
 
-function draw() {
-  drawBackgroundGrid();
+function draw(time) {
+  drawBackgroundGrid(time);
   drawBricks();
   drawPowerUps();
   drawLaserShots();
@@ -749,26 +965,55 @@ function drawGameOverOverlay() {
   }
   const centerX = canvas.width / 2;
   const centerY = canvas.height / 2;
-  const maxRadius = Math.hypot(canvas.width, canvas.height) * 0.6;
-  const radius = maxRadius * (0.35 + 0.65 * state.explosionProgress);
-  const gradient = ctx.createRadialGradient(centerX, centerY, radius * 0.1, centerX, centerY, radius);
-  gradient.addColorStop(0, "rgba(255, 150, 0, 0.9)");
-  gradient.addColorStop(0.5, "rgba(255, 39, 112, 0.35)");
-  gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+  const overlayW = canvas.width * 0.82;
+  const overlayH = canvas.height * 0.82;
+  const overlayX = (canvas.width - overlayW) / 2;
+  const overlayY = (canvas.height - overlayH) / 2;
+  const radius = Math.max(canvas.width, canvas.height) * (0.55 + state.explosionProgress * 0.35);
+  const gradient = ctx.createRadialGradient(
+    centerX,
+    centerY,
+    radius * 0.2,
+    centerX,
+    centerY,
+    radius
+  );
+  gradient.addColorStop(0, "rgba(255, 150, 0, 0.95)");
+  gradient.addColorStop(0.35, "rgba(255, 39, 112, 0.55)");
+  gradient.addColorStop(1, "rgba(7, 3, 21, 0.95)");
   ctx.save();
   ctx.globalCompositeOperation = "lighter";
   ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillRect(overlayX, overlayY, overlayW, overlayH);
   ctx.restore();
   ctx.save();
-  ctx.font = "bold 72px var(--font-display, 'Orbitron')";
+  ctx.globalCompositeOperation = "screen";
+  for (let burst = 0; burst < 5; burst += 1) {
+    const angle = (Math.PI * 2 * burst) / 5 + state.backgroundAngle;
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY);
+    ctx.lineTo(
+      centerX + Math.cos(angle) * radius * 0.9,
+      centerY + Math.sin(angle) * radius * 0.9
+    );
+    ctx.strokeStyle = `rgba(255, 255, 255, ${0.15 + 0.22 * (1 - state.explosionProgress)})`;
+    ctx.lineWidth = 4;
+    ctx.stroke();
+  }
+  ctx.restore();
+  ctx.save();
+  const headlineSize = Math.floor(overlayH * 0.2);
+  ctx.font = `bold ${headlineSize}px var(--font-display, 'Orbitron')`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
+  ctx.strokeStyle = "rgba(255, 78, 173, 0.9)";
   ctx.lineWidth = 10;
-  ctx.strokeStyle = "rgba(255, 0, 110, 0.85)";
   ctx.fillStyle = "rgba(255, 255, 255, 0.98)";
-  ctx.strokeText("GAME OVER", centerX, centerY);
-  ctx.fillText("GAME OVER", centerX, centerY);
+  ctx.strokeText("GAME OVER", centerX, centerY - overlayH * 0.02);
+  ctx.fillText("GAME OVER", centerX, centerY - overlayH * 0.02);
+  ctx.font = `bold ${Math.floor(overlayH * 0.08)}px var(--font-display, 'Orbitron')`;
+  ctx.lineWidth = 6;
+  ctx.fillText("Paina välilyöntiä aloittaaksesi alusta", centerX, centerY + overlayH * 0.25);
   ctx.restore();
 }
 
@@ -809,9 +1054,21 @@ window.addEventListener("keydown", (event) => {
   if (event.code === "ArrowRight" || event.code === "KeyD") {
     input.right = true;
   }
-  if (event.code === "Space" && !state.running && state.lives > 0) {
-    state.running = true;
-    state.status = "Pelaa!";
+  if (event.code === "Space") {
+    event.preventDefault();
+    if (state.gameOver) {
+      restartGame();
+      return;
+    }
+    if (state.running) {
+      state.running = false;
+      state.paused = true;
+      state.status = "Peli pysäytetty";
+    } else if (state.lives > 0) {
+      state.running = true;
+      state.paused = false;
+      state.status = "Pelaa!";
+    }
   }
   if (event.code === "KeyF") {
     event.preventDefault();
@@ -1007,6 +1264,7 @@ class MusicEngine {
 const musicEngine = new MusicEngine();
 musicEngine.onBeat = () => {
   state.beatPulse = 1;
+  state.backgroundPulse = 1;
 };
 
 function applyModeSettingsOnStart() {
