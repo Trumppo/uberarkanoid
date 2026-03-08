@@ -259,9 +259,8 @@ function getRowMask(pattern, rowIndex) {
 
 function buildBricks(level = state.level) {
   const pattern = getPatternForLevel(level);
-  const computedRows = computeBrickRows(level, BRICK_BASE_ROWS, BRICK_MAX_EXTRA_ROWS);
-  const patternRows = pattern?.pattern?.length || computedRows;
-  const totalRows = Math.max(computedRows, patternRows);
+  const rowsFromPattern = pattern?.pattern?.length;
+  const totalRows = rowsFromPattern ?? computeBrickRows(level, BRICK_BASE_ROWS, BRICK_MAX_EXTRA_ROWS);
   state.currentRows = totalRows;
   bricks = [];
   state.totalBricks = 0;
